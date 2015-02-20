@@ -14,7 +14,7 @@ In order to use the Twitter API, you'll first need to create a Twitter App.
 
 Instantiate the class with the following line of code:
 
-```
+```squirrel
 twitter <- Twitter(API_KEY, API_SECRET, AUTH_TOKEN, TOKEN_SECRET);
 ```
 
@@ -22,7 +22,7 @@ twitter <- Twitter(API_KEY, API_SECRET, AUTH_TOKEN, TOKEN_SECRET);
 
 Sending a tweet is super easy:
 
-```
+```squirrel
 twitter.tweet("I just tweeted from an @electricimp agent - bit.ly/ei-twitter.");
 ```
 
@@ -30,7 +30,7 @@ twitter.tweet("I just tweeted from an @electricimp agent - bit.ly/ei-twitter.");
 
 You can get near instantaneous results for a Twitter search by using the streaming API. When we open a stream, we need to provide a callback that will be executed whenever a new tweet comes into the stream:
 
-```
+```squirrel
 function onTweet(tweetData) {
     // log the tweet, and who tweeted it (there is a LOT more info in tweetData)
     server.log(format("%s - %s", tweetData.text, tweetData.user.screen_name));
