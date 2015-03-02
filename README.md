@@ -18,6 +18,8 @@ You instantiate the class with the following line of code:
 twitter <- Twitter(API_KEY, API_SECRET, AUTH_TOKEN, TOKEN_SECRET)
 ```
 
+### Class Methods
+
 ### Tweeting: tweet(*message*)
 
 Sending a Tweet is simple: call the *tweet()* method. This takes a single parameter: a string containing the text of your Tweet.
