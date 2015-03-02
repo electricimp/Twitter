@@ -4,7 +4,7 @@ The Twitter class allows you to Tweet and to stream results from Twitter’s str
 
 You can only have one instance of the streaming API open per Twitter account per app.
 
-## Usage
+## Class Usage
 
 ### Create a Twitter App
 
