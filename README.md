@@ -4,6 +4,8 @@ The Twitter class allows you to Tweet and to stream results from Twitter’s str
 
 **NOTE:** You can only have one instance of the streaming API open per Twitter account per Twitter App.
 
+**To add this library to your project, add** `#require "Twitter.class.nut:1.1.0"` **to the top of your agent code**
+
 ## Create a Twitter App
 
 In order to use the Twitter API, you’ll first need to [create a Twitter App](https://apps.twitter.com/).
