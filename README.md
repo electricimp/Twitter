@@ -60,6 +60,16 @@ twitter.stream("searchTerm", onTweet)
 An optional third parameter can be passed to the *Twitter.stream()*: onError. The onError parameter is a callback method that takes a single parameter (the error) and that will be invoked if any errors arise during the stream. If no callback is supplied, the default handler will be user:
 
 ```squirrel
+function onError(errors) {
+    foreach(err in errors) {
+        server.error(err.code + ": " + err.message);
+    }
+
+    // close the stream, and re-open it
+    twitter.closeStream();
+    twitter.stream();
+}
+
 function onTweet(tweetData) {
   this.log(format("%s - %s", tweetData.text, tweetData.user.screen_name));
 }
