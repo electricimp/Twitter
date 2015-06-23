@@ -4,7 +4,7 @@
 
 class Twitter {
 
-    static version = [1,1,1];
+    static version = [1,2,0];
 
     // URLs
     static STREAM_URL = "https://stream.twitter.com/1.1/";
@@ -93,25 +93,27 @@ class Twitter {
     function stream(searchTerms, onTweet, onError = null) {
         _log("Opening stream for: " + searchTerms);
 
-        // Set default error handler
-
-        if (onError == null) onError = _defaultErrorHandler.bindenv(this);
-
         local method = "statuses/filter.json"
         local post = { track = searchTerms };
-        local request = _oAuth1Request(STREAM_URL + method, post);
 
-        _streamingRequest = request.sendasync(
+        _streamingRequest = _oAuth1Request(STREAM_URL + method, post);
+        _streamingRequest.sendasync(
             function(resp) {
                 // connection timeout
                 _log("Stream Closed (" + resp.statuscode + ": " + resp.body +")");
 
-                // if we have autoreconnect set
-                if (resp.statuscode == 28 || resp.statuscode == 200) {
-                    stream(searchTerms, onTweet, onError);
-                } else if (resp.statuscode == 420) {
+                if (resp.statuscode == 420) {
+                    // 420 - Enhance your calm (too many requests)
+                    // Try again with the _reconnectTimeout
                     imp.wakeup(_reconnectTimeout, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
                     _reconnectTimeout *= 2;
+                } else if (resp.statuscode == 28 || resp.statuscode == 200 || onError == null) {
+                    // Expected statuscode (28 = curl timeout, or 200, OK) or no error handler:
+                    // Try again immediatly
+                    imp.wakeup(0, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
+                } else {
+                    // Unexpected status code, but we have an error handler
+                    imp.wakeup(0, function() { onError([{ message = resp.body, code = resp.statuscode }]); });
                 }
             }.bindenv(this),
 
@@ -143,21 +145,39 @@ class Twitter {
 
                     if ("errors" in data) {
                         _error("Got an error");
-                        onError(data.errors);
+                        if (onError == null && this._debug) {
+                            _defaultErrorHandler(data.errors);
+                        } else if (onError != null) {
+                            imp.wakeup(0, function() { onError(data.errors); });
+                        }
                         return;
                     }
                     else {
                         if (_looksLikeATweet(data)) {
-                            onTweet(data);
+                            imp.wakeup(0, function() { onTweet(data); });
                             return;
                         }
                     }
                 } catch(ex) {
+                        if (onError == null && this._debug) {
+                            _defaultErrorHandler(data.errors);
+                        } else if (onError != null) {
+                            imp.wakeup(0, function() { onError([{ message = "Squirrel Error - " + ex, code = -1 }]); });
+                        }
+
                     // if an error occured, invoke error handler
-                    onError([{ message = "Squirrel Error - " + ex, code = -1 }]);
+                    imp.wakeup(0, function() { onError([{ message = "Squirrel Error - " + ex, code = -1 }]); });
                 }
             }.bindenv(this)
         );
+    }
+
+    // Closes the stream (if it is open)
+    function closeStream() {
+        if (_streamingRequest != null) {
+            this._streamingRequest.cancel();
+            this._streamingRequest = null;
+        }
     }
 
     /***** Private Function - Do Not Call *****/
@@ -229,7 +249,7 @@ class Twitter {
 
     function _defaultErrorHandler(errors) {
         foreach(error in errors) {
-            _error("ERROR " + error.code + ": " + error.message);
+            _error(error.code + ": " + error.message);
         }
     }
 
