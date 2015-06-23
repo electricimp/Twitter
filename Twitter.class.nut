@@ -108,7 +108,7 @@ class Twitter {
                     imp.wakeup(_reconnectTimeout, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
                     _reconnectTimeout *= 2;
                 } else if (resp.statuscode == 28 || resp.statuscode == 200 || onError == null) {
-                    // Expected statuscode, or no error handler:
+                    // Expected statuscode (28 = curl timeout, or 200, OK) or no error handler:
                     // Try again immediatly
                     imp.wakeup(0, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
                 } else {
