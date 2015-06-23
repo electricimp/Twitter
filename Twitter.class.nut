@@ -113,7 +113,7 @@ class Twitter {
                     imp.wakeup(0, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
                 } else {
                     // Unexpected status code, but we have an error handler
-                    imp.wakeup(0, function() { onError({ message = resp.body, code = resp.statuscode }); });
+                    imp.wakeup(0, function() { onError([{ message = resp.body, code = resp.statuscode }]); });
                 }
             }.bindenv(this),
 
