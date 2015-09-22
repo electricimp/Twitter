@@ -136,7 +136,7 @@ class Twitter {
             } else {
                 // Unknown status code + no onError handler
                 // log mesage and retry immediatly
-                _log("Stream Closed (" + resp.statuscode + ": " + resp.body +")");
+                _log("Stream closed, retrying in 10 seconds (" + resp.statuscode + ": " + resp.body +")");
                 imp.wakeup(10, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
             }
         }.bindenv(this);
