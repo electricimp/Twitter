@@ -116,8 +116,9 @@ class Twitter {
     // Build a onResponse callback for streaming requests
     function _onResponseFactory(searchTerms, onTweet, onError) {
         return function(resp) {
-            if (resp.statuscode == 28 || resp.statuscode == 200) {
+            if (resp.statuscode == 23 || resp.statuscode == 28 || resp.statuscode == 200) {
                 // Expected status code
+                // Note '23' accompanies an over-large anomalous data block from Twitter
                 // Try again immediatly:
                 imp.wakeup(0, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
             } else if (onError != null) {
