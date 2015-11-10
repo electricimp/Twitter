@@ -152,46 +152,41 @@ class Twitter {
                     _buffer = "";
                     return;
                 }
-
-                local data = null;
-                try {
-                    // Try decoding the data
-                    data = http.jsondecode(body);
-                } catch(ex) {
-                    // If it failed, add it to the buffer and try again
-                    _buffer += body;
-                    try {
-                        data = http.jsondecode(_buffer);
-                    } catch (ex) {
-                        // If it failed a second time, we're done..
-                        // (we'll try again next time we get data)
-                        return;
+                
+                _buffer += body;
+                while (1) {
+                	local p = _buffer.find("\r\n");
+                	if (p == null) break;
+                	local message = _buffer.slice(0, p);
+                	_buffer = _buffer.slice(p + 2);
+                	local data = null;
+                	
+                	try {
+                		data = http.jsondecode(message);
+                	} catch (ex) {
+                		continue;
+                	}
+                	
+                	if (data != null) {
+                	    // If there were errors
+                	    if ("errors" in data) {
+                    	    if (onError == null && this._debug) {
+                        	    _defaultErrorHandler(data.errors);
+                    	    } else if (onError != null) {
+                        	    // Invoke the onError handler if it exists
+                        	    imp.wakeup(0, function() { onError(data.errors); });
+                    	    }
+                	    }
+                	
+                	    // If it looks like a valid tweet, invoke the onTweet handler
+                	    if (_looksLikeATweet(data)) {
+                    	    imp.wakeup(0, function() { onTweet(data); });
+                	    }
                     }
                 }
 
-                // If we don't have valid data, we're done
-                if (data == null) return;
-
-                // If we do have valid data, clear the buffer and process data
                 _buffer = "";
-
-                // If there were errors
-                if ("errors" in data) {
-                    if (onError == null && this._debug) {
-                        _defaultErrorHandler(data.errors);
-                    } else if (onError != null) {
-                        // Invoke the onError handler if it exists
-                        imp.wakeup(0, function() { onError(data.errors); });
-                    }
-                    return;
-                }
-
-                // If it looks like a valid tweet, invoke the onTweet handler
-                if (_looksLikeATweet(data)) {
-                    imp.wakeup(0, function() { onTweet(data); });
-                    return;
-                }
-            } catch(ex) {
+			} catch(ex) {
                 if (onError == null && this._debug) {
                     _defaultErrorHandler(data.errors);
                 } else if (onError != null) {
