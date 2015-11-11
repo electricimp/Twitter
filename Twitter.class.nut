@@ -130,9 +130,6 @@ class Twitter {
                 // Unauthorized
                 // Log a message (don't reopen the stream)
                 _error("Failed to open stream (Unauthorized)");
-            } else if (resp.statuscode == 503) {
-                // Twitter busy - try again in 10 seconds
-                imp.wakeup(10, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
             } else if (onError != null) {
                 // Unexpected status code, but we have an error handler
                 // Invoke the error handler
