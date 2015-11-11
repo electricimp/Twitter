@@ -121,10 +121,6 @@ class Twitter {
                 // Note '23' accompanies an over-large anomalous data block from Twitter
                 // Try again immediatly:
                 imp.wakeup(0, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
-            } else if (onError != null) {
-                // Unexpected status code, but we have an error handler
-                // Invoke the error handler
-                imp.wakeup(0, function() { onError({ message = resp.body, code = resp.statuscode }); });
             } else if (resp.statuscode == 420 || resp.statuscode == 429) {
                 // Too many requests
                 // Try again with the _reconnectTimeout
@@ -134,6 +130,13 @@ class Twitter {
                 // Unauthorized
                 // Log a message (don't reopen the stream)
                 _error("Failed to open stream (Unauthorized)");
+            } else if (resp.statuscode == 503) {
+                // Twitter busy - try again in 10 seconds
+                imp.wakeup(10, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
+            } else if (onError != null) {
+                // Unexpected status code, but we have an error handler
+                // Invoke the error handler
+                imp.wakeup(0, function() { onError({ "message" : resp.body, "code" : resp.statuscode }); });
             } else {
                 // Unknown status code + no onError handler
                 // log mesage and retry immediatly
@@ -155,38 +158,41 @@ class Twitter {
                 
                 _buffer += body;
                 while (1) {
-                	local p = _buffer.find("\r\n");
-                	if (p == null) break;
-                	local message = _buffer.slice(0, p);
-                	_buffer = _buffer.slice(p + 2);
-                	local data = null;
-                	
-                	try {
-                		data = http.jsondecode(message);
-                	} catch (ex) {
-                		continue;
-                	}
-                	
-                	if (data != null) {
-                	    // If there were errors
-                	    if ("errors" in data) {
-                    	    if (onError == null && this._debug) {
-                        	    _defaultErrorHandler(data.errors);
-                    	    } else if (onError != null) {
-                        	    // Invoke the onError handler if it exists
-                        	    imp.wakeup(0, function() { onError(data.errors); });
-                    	    }
-                	    }
-                	
-                	    // If it looks like a valid tweet, invoke the onTweet handler
-                	    if (_looksLikeATweet(data)) {
-                    	    imp.wakeup(0, function() { onTweet(data); });
-                	    }
+                    // Run through the contents of _buffer looking for message blocks,
+                    // delimited by \r\n. For each block found, remove it from _buffer
+                    local p = _buffer.find("\r\n");
+                    if (p == null) break;
+                    local message = _buffer.slice(0, p);
+                    _buffer = _buffer.slice(p + 2);
+                    local data = null;
+                    
+                    // Try to decode the extracted message block as JSON
+                    try {
+                        data = http.jsondecode(message);
+                    } catch (ex) {
+                        continue;
+                    }
+                    
+                    // If the block has decoded successfully, check to see if it’s
+                    // (a) an error message, then (b) a Tweet
+                    if (data != null) {
+                        // If there were errors
+                        if ("errors" in data) {
+                            if (onError == null && this._debug) {
+                                _defaultErrorHandler(data.errors);
+                            } else if (onError != null) {
+                                // Invoke the onError handler if it exists
+                                imp.wakeup(0, function() { onError(data.errors); });
+                            }
+                        }
+                    
+                        // If it looks like a valid tweet, invoke the onTweet handler
+                        if (_looksLikeATweet(data)) imp.wakeup(0, function() { onTweet(data); });
                     }
                 }
 
-                _buffer = "";
-			} catch(ex) {
+               //_buffer = "";
+            } catch(ex) {
                 if (onError == null && this._debug) {
                     _defaultErrorHandler(data.errors);
                 } else if (onError != null) {
