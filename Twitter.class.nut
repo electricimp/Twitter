@@ -133,7 +133,7 @@ class Twitter {
             } else if (onError != null) {
                 // Unexpected status code, but we have an error handler
                 // Invoke the error handler
-                imp.wakeup(0, function() { onError({ "message" : resp.body, "code" : resp.statuscode }); });
+                imp.wakeup(0, function() { onError({ "message" : resp.body, "code" : resp.statuscode }); }.bindenv(this));
             } else {
                 // Unknown status code + no onError handler
                 // log mesage and retry immediatly
