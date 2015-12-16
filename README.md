@@ -15,7 +15,7 @@ The Twitter constructor takes 4 parameters that constitute your Twitter app's OA
 The constructor can also take an optional fifth parameter: a debugging flag (default value is true). When the debug flag is set to true, the Twitter class will log information to the device logs - when it is set to false it will not. It is typically recommended that you leave the flag set to true.
 
 ```squirrel
-#require "Twitter.class.nut:1.2.0"
+#require "Twitter.class.nut:1.2.1"
 twitter <- Twitter(API_KEY, API_SECRET, AUTH_TOKEN, TOKEN_SECRET)
 ```
 
