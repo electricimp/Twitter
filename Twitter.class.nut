@@ -4,7 +4,7 @@
 
 class Twitter {
 
-    static version = [1,2,0];
+    static version = [1,2,1];
 
     // URLs
     static STREAM_URL = "https://stream.twitter.com/1.1/";
@@ -59,7 +59,6 @@ class Twitter {
     *     bool indicating whether the tweet was successful(if no cb was supplied)
     *     nothing(if a callback was supplied)
     **************************************************************************/
-
     function tweet(status, cb = null) {
         // check if we got a string, instead of a table table
         if (typeof status == "string") {
@@ -97,95 +96,113 @@ class Twitter {
         local post = { track = searchTerms };
 
         _streamingRequest = _oAuth1Request(STREAM_URL + method, post);
+
         _streamingRequest.sendasync(
-            function(resp) {
-                // connection timeout
-                _log("Stream Closed (" + resp.statuscode + ": " + resp.body +")");
-
-                if (resp.statuscode == 420) {
-                    // 420 - Enhance your calm (too many requests)
-                    // Try again with the _reconnectTimeout
-                    imp.wakeup(_reconnectTimeout, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
-                    _reconnectTimeout *= 2;
-                } else if (resp.statuscode == 28 || resp.statuscode == 200 || onError == null) {
-                    // Expected statuscode (28 = curl timeout, or 200, OK) or no error handler:
-                    // Try again immediatly
-                    imp.wakeup(0, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
-                } else {
-                    // Unexpected status code, but we have an error handler
-                    imp.wakeup(0, function() { onError([{ message = resp.body, code = resp.statuscode }]); });
-                }
-            }.bindenv(this),
-
-            function(body) {
-                try {
-                    if (body.len() == 2) {
-                        _reconnectTimeout = 60;
-                        _buffer = "";
-                        return;
-                    }
-
-                    local data = null;
-                    try {
-                        data = http.jsondecode(body);
-                    } catch(ex) {
-                        _buffer += body;
-                        try {
-                            data = http.jsondecode(_buffer);
-                        } catch (ex) {
-                            return;
-                        }
-                    }
-
-                    if (data == null) return;
-
-                    // we have a complete tweet at this point
-                    // so clear out the buffer
-                    _buffer = "";
-
-                    if ("errors" in data) {
-                        _error("Got an error");
-                        if (onError == null && this._debug) {
-                            _defaultErrorHandler(data.errors);
-                        } else if (onError != null) {
-                            imp.wakeup(0, function() { onError(data.errors); });
-                        }
-                        return;
-                    }
-                    else {
-                        if (_looksLikeATweet(data)) {
-                            imp.wakeup(0, function() { onTweet(data); });
-                            return;
-                        }
-                    }
-                } catch(ex) {
-                        if (onError == null && this._debug) {
-                            _defaultErrorHandler(data.errors);
-                        } else if (onError != null) {
-                            imp.wakeup(0, function() { onError([{ message = "Squirrel Error - " + ex, code = -1 }]); });
-                        }
-
-                    // if an error occured, invoke error handler
-                    imp.wakeup(0, function() { onError([{ message = "Squirrel Error - " + ex, code = -1 }]); });
-                }
-            }.bindenv(this)
+            _onResponseFactory(searchTerms, onTweet, onError),
+            _onDataFactory(searchTerms, onTweet, onError),
+            NO_TIMEOUT
         );
     }
 
-    // Closes the stream (if it is open)
+    // Closes the stream (if it's open)
     function closeStream() {
         if (_streamingRequest != null) {
-            this._streamingRequest.cancel();
-            this._streamingRequest = null;
+            _streamingRequest.cancel();
+            _streamingRequest = null;
         }
     }
 
-    /***** Private Function - Do Not Call *****/
-
-    function _encode(str) {
-        return http.urlencode({ s = str }).slice(2);
+    //-------------------- PRIVATE METHODS --------------------//
+    // Build a onResponse callback for streaming requests
+    function _onResponseFactory(searchTerms, onTweet, onError) {
+        return function(resp) {
+            if (resp.statuscode == 23 || resp.statuscode == 28 || resp.statuscode == 200) {
+                // Expected status code
+                // Note '23' accompanies an over-large anomalous data block from Twitter
+                // Try again immediatly:
+                imp.wakeup(0, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
+            } else if (resp.statuscode == 420 || resp.statuscode == 429) {
+                // Too many requests
+                // Try again with the _reconnectTimeout
+                imp.wakeup(_reconnectTimeout, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
+                _reconnectTimeout *= 2;
+            } else if (resp.statuscode == 401) {
+                // Unauthorized
+                // Log a message (don't reopen the stream)
+                _error("Failed to open stream (Unauthorized)");
+            } else if (onError != null) {
+                // Unexpected status code, but we have an error handler
+                // Invoke the error handler
+                imp.wakeup(0, function() { onError({ "message" : resp.body, "code" : resp.statuscode }); }.bindenv(this));
+            } else {
+                // Unknown status code + no onError handler
+                // log mesage and retry immediatly
+                _log("Stream closed, retrying in 10 seconds (" + resp.statuscode + ": " + resp.body +")");
+                imp.wakeup(10, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
+            }
+        }.bindenv(this);
     }
 
+    // Builds an onData callback for streaming methods
+    function _onDataFactory(searchTerms, onTweet, onError) {
+        return function(body) {
+            try {
+                if (body.len() == 2) {
+                    _reconnectTimeout = 60;
+                    _buffer = "";
+                    return;
+                }
+                
+                _buffer += body;
+                while (1) {
+                    // Run through the contents of _buffer looking for message blocks,
+                    // delimited by \r\n. For each block found, remove it from _buffer
+                    local p = _buffer.find("\r\n");
+                    if (p == null) break;
+                    local message = _buffer.slice(0, p);
+                    _buffer = _buffer.slice(p + 2);
+                    local data = null;
+                    
+                    // Try to decode the extracted message block as JSON
+                    try {
+                        data = http.jsondecode(message);
+                    } catch (ex) {
+                        continue;
+                    }
+                    
+                    // If the block has decoded successfully, check to see if it’s
+                    // (a) an error message, then (b) a Tweet
+                    if (data != null) {
+                        // If there were errors
+                        if ("errors" in data) {
+                            if (onError == null && this._debug) {
+                                _defaultErrorHandler(data.errors);
+                            } else if (onError != null) {
+                                // Invoke the onError handler if it exists
+                                imp.wakeup(0, function() { onError(data.errors); });
+                            }
+                        }
+                    
+                        // If it looks like a valid tweet, invoke the onTweet handler
+                        if (_looksLikeATweet(data)) imp.wakeup(0, function() { onTweet(data); });
+                    }
+                }
+
+               //_buffer = "";
+            } catch(ex) {
+                if (onError == null && this._debug) {
+                    _defaultErrorHandler(data.errors);
+                } else if (onError != null) {
+                    imp.wakeup(0, function() { onError([{ message = "Squirrel Error - " + ex, code = -1 }]); });
+                }
+
+                // if an error occured, invoke error handler
+                imp.wakeup(0, function() { onError([{ message = "Squirrel Error - " + ex, code = -1 }]); });
+            }
+        }.bindenv(this);
+    }
+
+    // Constructs a properly formated OAuth request
     function _oAuth1Request(postUrl, data) {
         local time = time();
         local nonce = time;
@@ -238,6 +255,12 @@ class Twitter {
         return request;
     }
 
+    // URL encodes a string
+    function _encode(str) {
+        return http.urlencode({ s = str }).slice(2);
+    }
+
+    // Looks for some key fields to identify a valid tweet
     function _looksLikeATweet(data) {
         return (
             "created_at" in data &&
@@ -247,16 +270,19 @@ class Twitter {
         );
     }
 
+    // Logs each error message
     function _defaultErrorHandler(errors) {
         foreach(error in errors) {
             _error(error.code + ": " + error.message);
         }
     }
 
+    // Logs a message when the debug flag is set
     function _log(msg) {
         if (_debug) server.log(msg)
     }
 
+    // Logs an error message when the debug flag is set
     function _error(msg) {
         if (_debug) server.error(msg);
     }
