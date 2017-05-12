@@ -1,47 +1,71 @@
-// Copyright (c) 2015 Electric Imp
-// This file is licensed under the MIT License
-// http://opensource.org/licenses/MIT
+// MIT License
+//
+// Copyright 2015-2016 Electric Imp
+//
+// SPDX-License-Identifier: MIT
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be
+// included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+// EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES
+// OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+// ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+// OTHER DEALINGS IN THE SOFTWARE.
+
+
+const TWITTER_DEFAULT_RECONNECT_TIMEOUT_SEC = 60;
 
 class Twitter {
 
-    static version = [1,2,1];
+    static VERSION = "2.0.0";
 
     // URLs
     static STREAM_URL = "https://stream.twitter.com/1.1/";
-    static TWEET_URL = "https://api.twitter.com/1.1/statuses/update.json";
+    static TWEET_URL  = "https://api.twitter.com/1.1/statuses/update.json";
+
+    // Generic
+    _buffer = null;
+    _debug  = null;
 
     // OAuth
-    _oauthTable =  null;
+    _oauthConfig      = null;
 
-    _consumerKey = null;
-    _consumerSecret = null;
-    _accessToken = null;
-    _accessSecret = null;
+    _consumerKey      = null;
+    _consumerSecret   = null;
+    _accessToken      = null;
+    _accessSecret     = null;
 
     // Streaming
     _streamingRequest = null;
     _reconnectTimeout = null;
-    _buffer = null;
-
-    // Debug Flag
-    _debug = null;
+    _reconnectTimer   = null;
 
     constructor (consumerKey, consumerSecret, accessToken, accessSecret, debug = true) {
-        _consumerKey = consumerKey;
+        _consumerKey    = consumerKey;
         _consumerSecret = consumerSecret;
-        _accessToken = accessToken;
-        _accessSecret = accessSecret;
+        _accessToken    = accessToken;
+        _accessSecret   = accessSecret;
 
-        _oauthTable = {
-            oauth_consumer_key = _consumerKey,
-            oauth_nonce = null,
-            oauth_signature_method = "HMAC-SHA1",
-            oauth_timestamp = null,
-            oauth_token = _accessToken,
-            oauth_version = "1.0"
+        _oauthConfig = {
+            "oauth_version"          : "1.0",
+            "oauth_consumer_key"     : _consumerKey,
+            "oauth_token"            : _accessToken,
+            "oauth_signature_method" : "HMAC-SHA1",
+            "oauth_timestamp"        : null,
+            "oauth_nonce"            : null
         };
 
-        _reconnectTimeout = 60;
+        _reconnectTimeout = TWITTER_DEFAULT_RECONNECT_TIMEOUT_SEC; // sec
         _buffer = "";
 
         _debug = debug;
@@ -110,6 +134,10 @@ class Twitter {
             _streamingRequest.cancel();
             _streamingRequest = null;
         }
+        _reconnectTimeout = TWITTER_DEFAULT_RECONNECT_TIMEOUT_SEC;
+        if (_reconnectTimer) {
+            imp.cancelwakeup(_reconnectTimer);
+        }
     }
 
     //-------------------- PRIVATE METHODS --------------------//
@@ -120,11 +148,19 @@ class Twitter {
                 // Expected status code
                 // Note '23' accompanies an over-large anomalous data block from Twitter
                 // Try again immediatly:
-                imp.wakeup(0, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
+                _reconnectTimer = imp.wakeup(0,
+                    function() {
+                        stream(searchTerms, onTweet, onError);
+                    }.bindenv(this)
+                );
             } else if (resp.statuscode == 420 || resp.statuscode == 429) {
                 // Too many requests
                 // Try again with the _reconnectTimeout
-                imp.wakeup(_reconnectTimeout, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
+                _reconnectTimer = imp.wakeup(_reconnectTimeout,
+                    function() {
+                        stream(searchTerms, onTweet, onError);
+                    }.bindenv(this)
+                );
                 _reconnectTimeout *= 2;
             } else if (resp.statuscode == 401) {
                 // Unauthorized
@@ -133,12 +169,20 @@ class Twitter {
             } else if (onError != null) {
                 // Unexpected status code, but we have an error handler
                 // Invoke the error handler
-                imp.wakeup(0, function() { onError({ "message" : resp.body, "code" : resp.statuscode }); }.bindenv(this));
+                _reconnectTimer = imp.wakeup(0,
+                    function() {
+                        onError({ "message" : resp.body, "code" : resp.statuscode });
+                    }.bindenv(this)
+                );
             } else {
                 // Unknown status code + no onError handler
                 // log mesage and retry immediatly
                 _log("Stream closed, retrying in 10 seconds (" + resp.statuscode + ": " + resp.body +")");
-                imp.wakeup(10, function() { stream(searchTerms, onTweet, onError); }.bindenv(this));
+                _reconnectTimer = imp.wakeup(10,
+                    function() {
+                        stream(searchTerms, onTweet, onError);
+                    }.bindenv(this)
+                );
             }
         }.bindenv(this);
     }
@@ -152,7 +196,7 @@ class Twitter {
                     _buffer = "";
                     return;
                 }
-                
+
                 _buffer += body;
                 while (1) {
                     // Run through the contents of _buffer looking for message blocks,
@@ -162,14 +206,14 @@ class Twitter {
                     local message = _buffer.slice(0, p);
                     _buffer = _buffer.slice(p + 2);
                     local data = null;
-                    
+
                     // Try to decode the extracted message block as JSON
                     try {
                         data = http.jsondecode(message);
                     } catch (ex) {
                         continue;
                     }
-                    
+
                     // If the block has decoded successfully, check to see if it’s
                     // (a) an error message, then (b) a Tweet
                     if (data != null) {
@@ -182,7 +226,7 @@ class Twitter {
                                 imp.wakeup(0, function() { onError(data.errors); });
                             }
                         }
-                    
+
                         // If it looks like a valid tweet, invoke the onTweet handler
                         if (_looksLikeATweet(data)) imp.wakeup(0, function() { onTweet(data); });
                     }
@@ -207,11 +251,11 @@ class Twitter {
         local time = time();
         local nonce = time;
 
-        _oauthTable.oauth_nonce = nonce;
-        _oauthTable.oauth_timestamp = time;
+        _oauthConfig.oauth_nonce = nonce;
+        _oauthConfig.oauth_timestamp = time;
 
         local keys = [];
-        foreach (k,v in _oauthTable){
+        foreach (k,v in _oauthConfig){
             keys.append(k);
         }
 
@@ -223,8 +267,8 @@ class Twitter {
 
         local parm_string = "";
         foreach(k in keys){
-            if (k in _oauthTable) {
-                parm_string += "&" + http.urlencode({ [k] = _oauthTable[k] });
+            if (k in _oauthConfig) {
+                parm_string += "&" + http.urlencode({ [k] = _oauthConfig[k] });
             } else if (k in data) {
                 parm_string += "&" + http.urlencode({ [k] = data[k] });
             } else {
