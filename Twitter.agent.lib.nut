@@ -161,7 +161,7 @@ class Twitter {
                         stream(searchTerms, onTweet, onError);
                     }.bindenv(this)
                 );
-                _reconnectTimeout += TWITTER_DEFAULT_RECONNECT_TIMEOUT_SEC;
+                _reconnectTimeout *= 2;
             } else if (resp.statuscode == 401) {
                 // Unauthorized
                 // Log a message (don't reopen the stream)
